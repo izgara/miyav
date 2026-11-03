@@ -1,0 +1,62 @@
+--- a/libavfilter/vsrc_ddagrab.c	2026-10-23 23:26:13.549230346 +0300
++++ b/libavfilter/vsrc_ddagrab.c	2026-10-23 23:26:13.564230539 +0300
+@@ -77,6 +77,7 @@
+     int64_t time_frame;
+     int64_t time_timeout;
+     int64_t first_pts;
++    int64_t last_reinit;
+ 
+     DXGI_FORMAT raw_format;
+     int raw_width;
+@@ -692,6 +693,18 @@
+     HRESULT hr;
+     int ret;
+ 
++    if (!dda->dxgi_outdupl) {
++        int64_t now = av_gettime_relative();
++        if (now - dda->last_reinit < 100000 || init_dxgi_dda(avctx) < 0) {
++            if (now - dda->last_reinit >= 100000)
++                dda->last_reinit = now;
++            av_usleep(10000);
++            return AVERROR(EAGAIN);
++        }
++        dda->last_reinit = now;
++        av_log(avctx, AV_LOG_INFO, "Desktop duplication restored\n");
++    }
++
+     hr = IDXGIOutputDuplication_AcquireNextFrame(
+         dda->dxgi_outdupl,
+         dda->time_timeout,
+@@ -699,6 +712,11 @@
+         &desktop_resource);
+     if (hr == DXGI_ERROR_WAIT_TIMEOUT) {
+         return AVERROR(EAGAIN);
++    } else if (hr == DXGI_ERROR_ACCESS_LOST && !need_frame) {
++        av_log(avctx, AV_LOG_INFO, "Desktop duplication lost, reopening\n");
++        release_resource(&dda->dxgi_outdupl);
++        dda->last_reinit = 0;
++        return AVERROR(EAGAIN);
+     } else if (FAILED(hr)) {
+         av_log(avctx, AV_LOG_ERROR, "AcquireNextFrame failed: %lx\n", hr);
+         return AVERROR_EXTERNAL;
+@@ -1126,9 +1144,11 @@
+     now -= dda->first_pts;
+ 
+     if (!dda->probed_texture) {
++        int64_t wait_start = av_gettime_relative();
+         do {
+             ret = next_frame_internal(avctx, &cur_texture, 0);
+-        } while (ret == AVERROR(EAGAIN) && !dda->dup_frames);
++        } while (ret == AVERROR(EAGAIN) && !dda->dup_frames &&
++                 av_gettime_relative() - wait_start < 200000);
+     } else {
+         cur_texture = dda->probed_texture;
+         dda->probed_texture = NULL;
+@@ -1147,6 +1167,7 @@
+         }
+ 
+         av_log(avctx, AV_LOG_DEBUG, "Duplicated output frame\n");
++        now = av_gettime_relative() - dda->first_pts;
+ 
+         goto frame_done;
+     } else if (ret == AVERROR(EAGAIN)) {

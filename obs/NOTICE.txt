@@ -1,0 +1,13 @@
+This folder holds parts of OBS Studio 33.0.0, unmodified, as released by the
+OBS Project at https://github.com/obsproject/obs-studio/releases/tag/33.0.0
+
+OBS Studio is free software, licensed under the GNU General Public License,
+version 2 or later: https://www.gnu.org/licenses/old-licenses/gpl-2.0.html
+Its source code is at https://github.com/obsproject/obs-studio/tree/33.0.0
+
+bin\64bit\miyav-obs.exe is Miyav's recorder, which runs on OBS's libobs. It is
+licensed under the GNU GPL version 3 or later, and its source code is at
+https://github.com/izgara/miyav
+
+OBS Studio's bundled libraries (FFmpeg, x264, libcurl, SRT, librist, zlib)
+carry their own licenses, as listed in the OBS Studio source.

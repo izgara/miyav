@@ -1,0 +1,13 @@
+# Build outputs: build.sh makes all of these.
+/dist/
+/Miyav.exe
+/WebView2Loader.dll
+/ffmpeg.exe
+target/
+
+# OBS files, fetched by obs/fetch.sh.
+/obs/cache/
+/obs/stage/
+
+# ffmpeg build, from ffmpeg/build.sh.
+/ffmpeg/out/
