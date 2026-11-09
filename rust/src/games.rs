@@ -201,6 +201,9 @@ fn steam_root() -> String {
     win::reg_string(HKLM, r"SOFTWARE\WOW6432Node\Valve\Steam", "InstallPath")
 }
 
+/// Things Steam installs like games but that nobody plays.
+const NOT_STEAM_GAMES: [&str; 5] = ["anticheat", "anti-cheat", "redistributable", "steam linux runtime", "steamvr"];
+
 fn steam_games() -> Vec<GameEntry> {
     let root = steam_root();
     if root.is_empty() {
@@ -227,6 +230,10 @@ fn steam_games() -> Vec<GameEntry> {
             let Ok(b) = std::fs::read(e.path()) else { continue };
             let text = String::from_utf8_lossy(&b);
             if let (Some(n), Some(d)) = (VDF_NAME.captures(&text), VDF_INSTALL.captures(&text)) {
+                let lower = n[1].to_lowercase();
+                if NOT_STEAM_GAMES.iter().any(|x| lower.contains(x)) {
+                    continue;
+                }
                 out.push(GameEntry {
                     name: n[1].to_string(),
                     dir: apps.join("common").join(&d[1]).display().to_string(),

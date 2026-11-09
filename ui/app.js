@@ -1099,7 +1099,23 @@ async function loadGames() {
       row.className = 'game-row';
       row.title = g.dir;
       const n = document.createElement('span');
-      n.textContent = g.name;
+      n.className = 'game-name';
+      const label = document.createElement('span');
+      label.textContent = g.name;
+      const icon = document.createElement('img');
+      icon.className = 'game-icon';
+      icon.alt = '';
+      icon.loading = 'lazy';
+      icon.src = '/api/game-icon?name=' + encodeURIComponent(g.name);
+      // Not installed where a store says, or an app added by hand: its first letter.
+      icon.onerror = () => {
+        const letter = document.createElement('span');
+        letter.className = 'game-icon letter';
+        letter.textContent = (g.name || '?').charAt(0).toUpperCase();
+        icon.replaceWith(letter);
+      };
+      n.appendChild(icon);
+      n.appendChild(label);
       const s = document.createElement('span');
       s.className = 'pillcount';
       s.textContent = g.store;
@@ -1240,5 +1256,14 @@ $('#jobCancel').addEventListener('click', async (ev) => {
   ev.currentTarget.disabled = true;
   try { await post('/api/job/cancel', {}); } catch (e) { toast(e.message, 'err'); }
 });
+
+// Short of four columns, Your PC wraps below the tallest column and leaves a hole;
+// there it goes under Games found instead.
+const pcCardNarrow = window.matchMedia('(max-width: 1420px)');
+function placePcCard() {
+  (pcCardNarrow.matches ? $('#recColGames') : $('#recColPc')).appendChild($('#recPcCard'));
+}
+pcCardNarrow.addEventListener('change', placePcCard);
+placePcCard();
 
 boot().catch((e) => toast(e.message, 'err'));

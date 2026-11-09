@@ -3,6 +3,7 @@
 mod audio;
 mod autoclip;
 mod ffmpeg;
+mod gameicon;
 mod games;
 mod job;
 mod obsrec;

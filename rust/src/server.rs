@@ -12,7 +12,7 @@ use tiny_http::{Header, Method, Response, Server, StatusCode};
 
 use crate::job::{self, Ctx};
 use crate::settings::{self, QUALITY_PRESETS};
-use crate::{ffmpeg, games, recorder, storage, update, win, window, winrec};
+use crate::{ffmpeg, gameicon, games, recorder, storage, update, win, window, winrec};
 
 static UI: Dir = include_dir!("$CARGO_MANIFEST_DIR/../ui");
 
@@ -539,6 +539,10 @@ fn route(r: &Req) -> Reply {
                 Err(e) => err(500, e),
             }
         }
+        "/api/game-icon" => match gameicon::png(&r.q("name")) {
+            Some(png) => Reply::Bytes(200, png, "image/png".to_string(), "public, max-age=86400"),
+            None => Reply::Text(404, "no icon"),
+        },
         "/api/rec/monitors" => ok(serde_json::to_value(winrec::monitors()).unwrap()),
         "/api/rec/swap" => match recorder::swap_mode() {
             Ok(_) => ok(serde_json::to_value(recorder::status()).unwrap()),
