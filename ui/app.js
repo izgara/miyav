@@ -449,14 +449,14 @@ function openEditor(f) {
   $('#editor').classList.remove('hidden');
 
   // Recordings with several audio tracks (ours keep game, PC audio and mic
-  // apart) get a choice of which one leads the cut.
+  // apart) get a choice of which one leads the cut, or of none at all.
   const row = $('#audioRow');
   row.classList.add('hidden');
   api('/api/probe?path=' + encodeURIComponent(f.path)).then((info) => {
     if (state.sel !== f) return;
     if (!f.size) f.size = info.sizeBytes;
     const tracks = info.audioTracks || [];
-    if (tracks.length < 2) return;
+    if (!tracks.length) return;
     const sel = $('#audioPick');
     sel.innerHTML = '';
     tracks.forEach((t, i) => {
@@ -465,6 +465,10 @@ function openEditor(f) {
       o.textContent = t;
       sel.appendChild(o);
     });
+    const none = document.createElement('option');
+    none.value = -2; // NO_AUDIO in ffmpeg.rs
+    none.textContent = 'No sound (removes all audio)';
+    sel.appendChild(none);
     sel.value = '0';
     row.classList.remove('hidden');
   }).catch(() => {});
@@ -793,12 +797,34 @@ function setSelect(sel, v) {
   sel.value = v;
 }
 
+// Only asked for in whole-screen mode, and only offered with more than one monitor.
+async function recFillMonitors(s) {
+  const row = $('#recMonitorRow');
+  const list = s.recordMode === 'screen' ? (await api('/api/rec/monitors').catch(() => [])) || [] : [];
+  row.classList.toggle('hidden', list.length < 2);
+  const sel = $('#recMonitor');
+  sel.replaceChildren(...list.map((m) => {
+    const o = document.createElement('option');
+    o.value = m.id;
+    o.textContent = m.output === null ? m.label + ' (on another graphics card, cannot be recorded)' : m.label;
+    o.disabled = m.output === null;
+    return o;
+  }));
+  // A monitor that was unplugged is recorded as the main one; show what is true.
+  const usable = list.filter((m) => m.output !== null);
+  const cur = usable.find((m) => m.id === s.recordMonitor) || usable.find((m) => m.primary) || usable[0];
+  if (cur) sel.value = cur.id;
+}
+
 function recFill() {
   const s = state.settings;
   if (!s) return;
   $('#recMode').value = s.recordMode || 'game';
+  recFillMonitors(s);
   $('#recHotkey').value = s.hotkey || '';
   $('#recKeyHint').textContent = s.hotkey || '';
+  $('#recSwapHotkey').value = s.swapHotkey || '';
+  $('#recSwapBack').checked = !!s.swapBackAfterClip;
   $('#recNotify').checked = !s.quietSaves;
   setSelect($('#recStorage'), s.storageLimitGB || 0);
   setSelect($('#recSeconds'), s.replaySeconds || 60);
@@ -818,7 +844,7 @@ async function recApply(patch) {
   try {
     await post('/api/settings', patch);
     // Only these restart the recorder (applyRecordSettings on the server).
-    const restarts = ['recordMode', 'replaySeconds', 'recordFps', 'recordQuality', 'recordEncoder', 'recordCodec', 'replayInMemory', 'recordMic', 'hotkey']
+    const restarts = ['recordMode', 'recordMonitor', 'replaySeconds', 'recordFps', 'recordQuality', 'recordEncoder', 'recordCodec', 'replayInMemory', 'recordMic', 'hotkey']
       .some((k) => k in patch);
     msg.textContent = state.settings.recordEnabled && restarts ? 'Saved. The buffer started over.' : 'Saved.';
   } catch (e) {
@@ -831,7 +857,7 @@ async function recApply(patch) {
   recPoll(true);
 }
 
-[['recMode', 'recordMode', String], ['recSeconds', 'replaySeconds', Number], ['recFps', 'recordFps', Number],
+[['recMode', 'recordMode', String], ['recMonitor', 'recordMonitor', String], ['recSeconds', 'replaySeconds', Number], ['recFps', 'recordFps', Number],
   ['recQuality', 'recordQuality', Number], ['recEncoder', 'recordEncoder', String]].forEach(([id, key, conv]) => {
   $('#' + id).addEventListener('change', (e) => recApply({ [key]: conv(e.target.value) }));
 });
@@ -839,6 +865,7 @@ $('#recCodec').addEventListener('change', (e) => recApply({ recordCodec: e.targe
 $('#recBufferMem').addEventListener('change', (e) => recApply({ replayInMemory: e.target.value === 'memory' }));
 $('#recAutoClip').addEventListener('change', (e) => recApply({ autoClip: e.target.checked }));
 $('#recMic').addEventListener('change', (e) => recApply({ recordMic: e.target.checked }));
+$('#recSwapBack').addEventListener('change', (e) => recApply({ swapBackAfterClip: e.target.checked }));
 $('#recAutostart').addEventListener('change', (e) => recApply({ startWithWindows: e.target.checked }));
 $('#recNotify').addEventListener('change', (e) => recApply({ quietSaves: !e.target.checked }));
 $('#recStorage').addEventListener('change', async (e) => {
@@ -900,6 +927,7 @@ function hotkeyBox(input, done, restore) {
   });
 }
 hotkeyBox($('#recHotkey'), (combo) => recApply({ hotkey: combo }), recFill);
+hotkeyBox($('#recSwapHotkey'), (combo) => recApply({ swapHotkey: combo }), recFill);
 // The wizard keeps the choice until Finish; the box itself holds it.
 hotkeyBox($('#wizHotkey'), (combo) => { wiz.hotkey = combo; },
   () => { $('#wizHotkey').value = wiz.hotkey || state.settings.hotkey; });
@@ -919,6 +947,7 @@ function renderRec(st) {
   if (st.recording) {
     title = 'Recording ' + (st.target || 'the screen');
     detail = st.encoder + ' · last ' + st.bufferSec + ' s kept · running ' + fmtSince(st.since);
+    if (st.swapped && st.screen && state.settings && state.settings.swapBackAfterClip) detail += ' · back to games after one clip';
     kind = 'live';
   } else if (on && st.waiting) {
     title = 'Waiting for a game';
@@ -935,6 +964,12 @@ function renderRec(st) {
   $('#recToggle').textContent = on ? 'Turn off' : 'Turn on';
   $('#recToggle').className = 'btn ' + (on ? 'ghost' : 'primary');
   $('#recSave').disabled = !st.recording;
+  const swap = $('#recSwap');
+  swap.classList.toggle('hidden', !on);
+  swap.textContent = st.screen ? (st.swapped ? 'Back to games only' : 'Switch to games only') : (st.swapped ? 'Back to whole screen' : 'Record whole screen');
+  const swapErr = $('#recSwapErr');
+  swapErr.textContent = st.swapKeyError || '';
+  swapErr.classList.toggle('hidden', !st.swapKeyError);
 
   const err = $('#recErr');
   err.textContent = st.error || '';
@@ -977,6 +1012,14 @@ $('#recToggle').addEventListener('click', async (ev) => {
     await post(on ? '/api/rec/stop' : '/api/rec/start', {});
   } catch (e) { toast(e.message, 'err'); }
   state.settings = await api('/api/settings').catch(() => state.settings);
+  btn.disabled = false;
+  recPoll(true);
+});
+
+$('#recSwap').addEventListener('click', async (ev) => {
+  const btn = ev.currentTarget;
+  btn.disabled = true;
+  try { await post('/api/rec/swap', {}); } catch (e) { toast(e.message, 'err'); }
   btn.disabled = false;
   recPoll(true);
 });

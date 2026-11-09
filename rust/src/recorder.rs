@@ -9,7 +9,8 @@
 //! Desktop Duplication (ddagrab), kept up while the player is tabbed out; a
 //! windowed one is recorded on its own with Windows Graphics Capture
 //! (gfxcapture), which would cost a fullscreen game latency. "screen" mode records
-//! the whole primary monitor with ddagrab. Neither touches the game process - no
+//! a whole monitor, the main one unless the player picks another, with ddagrab.
+//! Neither touches the game process - no
 //! hook for anti-cheat to object to - and frames stay on the GPU all the way into
 //! the hardware encoder, so the CPU barely notices.
 //!
@@ -121,6 +122,13 @@ pub struct RecStatus {
     pub notice: String,
     /// The on/off switch, which the tray menu can flip too.
     pub enabled: bool,
+    /// What is being recorded right now, swapped or not: the whole screen, or games.
+    pub screen: bool,
+    /// Flipped away from the Mode setting for now (swap_mode).
+    pub swapped: bool,
+    /// Why the swap hotkey is not working; recording carries on without it.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub swap_key_error: String,
     /// A clip the window should open in the editor, once: the "Clip saved"
     /// notification was clicked.
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -526,7 +534,11 @@ pub fn status() -> RecStatus {
     let r = REC.lock().unwrap();
     let mut st = r.status.clone();
     st.waiting = st.waiting && !st.recording;
-    st.enabled = settings::get().record_enabled;
+    let s = settings::get();
+    st.enabled = s.record_enabled;
+    st.screen = screen_now(&s);
+    st.swapped = SWAPPED.load(Ordering::SeqCst);
+    st.swap_key_error = SWAP_KEY_ERROR.lock().unwrap().clone();
     st
 }
 
@@ -626,6 +638,7 @@ fn finish_save(out: PathBuf) -> String {
     let out = out.display().to_string();
     REC.lock().unwrap().status.last_clip = out.clone();
     storage::note_recorded(&out);
+    back_to_games_after_clip();
     out
 }
 
@@ -739,12 +752,16 @@ pub fn enable() -> Result<(), String> {
         set_err(&e);
         return Err(e);
     }
+    register_swap_hotkey(&s);
     let mut w = WATCHER.lock().unwrap();
     if w.is_some() {
         return Ok(());
     }
-    if s.record_mode == "screen" {
-        return start(Target::default());
+    if screen_now(&s) {
+        let list = winrec::monitors();
+        let output = winrec::screen_output(&list, &s.record_monitor);
+        rec_log(&format!("whole screen: output {output} of {} monitor(s), wanted \"{}\"", list.len(), s.record_monitor));
+        return start(Target { output, ..Default::default() });
     }
     let cancel = Arc::new(AtomicBool::new(false));
     *w = Some(cancel.clone());
@@ -762,6 +779,7 @@ pub fn disable() {
     REC.lock().unwrap().status.waiting = false;
     stop();
     let _ = winrec::set_hotkey("", None);
+    let _ = winrec::set_swap_hotkey("", None);
 }
 
 /// Follows whatever game is in front. A window has to stay in front for two checks
@@ -954,15 +972,22 @@ pub fn start_if_enabled() {
 pub fn apply_settings(old: &Settings, cur: &Settings) -> Result<(), String> {
     let key = |s: &Settings| {
         format!(
-            "{} {} {} {} {} {} {} {} {} {}",
-            s.record_enabled, s.record_mode, s.replay_seconds, s.record_fps, s.record_quality,
+            "{} {} {} {} {} {} {} {} {} {} {}",
+            s.record_enabled, s.record_mode, s.record_monitor, s.replay_seconds, s.record_fps, s.record_quality,
             s.record_encoder, s.record_codec, s.replay_in_memory, s.record_mic, s.hotkey
         )
     };
     if key(old) == key(cur) {
+        // A new swap hotkey is no reason to throw the buffer away.
+        if old.swap_hotkey != cur.swap_hotkey && cur.record_enabled {
+            register_swap_hotkey(cur);
+        }
         return Ok(());
     }
     disable();
+    if old.record_mode != cur.record_mode {
+        SWAPPED.store(false, Ordering::SeqCst); // the player chose; a swap no longer applies
+    }
     if old.record_encoder != cur.record_encoder {
         REC.lock().unwrap().enc = None;
     }
@@ -981,6 +1006,7 @@ pub fn restore_settings(old: &Settings) {
     settings::update(|s| {
         s.record_enabled = old.record_enabled;
         s.record_mode = old.record_mode.clone();
+        s.record_monitor = old.record_monitor.clone();
         s.replay_seconds = old.replay_seconds;
         s.record_fps = old.record_fps;
         s.record_quality = old.record_quality;
@@ -997,9 +1023,94 @@ pub fn restore_settings(old: &Settings) {
 /// The on/off switch: remembered, so the choice survives a restart of the app.
 pub fn set_enabled(on: bool) -> Result<(), String> {
     let before = settings::get();
+    if !on {
+        SWAPPED.store(false, Ordering::SeqCst);
+    }
     settings::update(|s| s.record_enabled = on);
     settings::save()?;
     apply_settings(&before, &settings::get())
+}
+
+// ---- swapping between games only and whole screen ----
+
+/// Flipped away from the Mode setting. Deliberately not saved: the app starts up in
+/// the mode the player chose, however it was left.
+static SWAPPED: AtomicBool = AtomicBool::new(false);
+static SWAPPING: Mutex<()> = Mutex::new(());
+static SWAP_KEY_ERROR: Mutex<String> = Mutex::new(String::new());
+static LAST_SWAP_PRESS: Mutex<Option<Instant>> = Mutex::new(None);
+static GOING_BACK: AtomicBool = AtomicBool::new(false);
+
+fn screen_now(s: &Settings) -> bool {
+    (s.record_mode == "screen") != SWAPPED.load(Ordering::SeqCst)
+}
+
+/// Never fatal: recording must not depend on a key combination that some other
+/// program may have taken.
+fn register_swap_hotkey(s: &Settings) {
+    let r = winrec::set_swap_hotkey(&s.swap_hotkey, Some(swap_from_hotkey));
+    if let Err(e) = &r {
+        rec_log(&format!("swap hotkey: {e}"));
+    }
+    *SWAP_KEY_ERROR.lock().unwrap() = r.err().unwrap_or_default();
+}
+
+/// Swaps what is recorded, until swapped back or the app restarts. The buffer starts
+/// over, as games and the screen cannot be joined in one clip. If the new mode cannot
+/// start, the old one is put back.
+pub fn swap_mode() -> Result<(), String> {
+    let _one = SWAPPING.lock().unwrap();
+    if !settings::get().record_enabled {
+        return Err("Recording is off".into());
+    }
+    SWAPPED.fetch_xor(true, Ordering::SeqCst);
+    disable();
+    if let Err(e) = enable() {
+        SWAPPED.fetch_xor(true, Ordering::SeqCst);
+        disable();
+        let _ = enable();
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// What the swap hotkey runs; the tones are the only answer it can give over a game.
+pub fn swap_from_hotkey() {
+    {
+        // Re-registering the key during a swap can fire it again while it is held.
+        let mut last = LAST_SWAP_PRESS.lock().unwrap();
+        if last.is_some_and(|t| t.elapsed() < Duration::from_millis(1500)) {
+            return;
+        }
+        *last = Some(Instant::now());
+    }
+    match swap_mode() {
+        Ok(_) => winrec::beep_mode(screen_now(&settings::get())),
+        Err(e) => {
+            rec_log(&format!("swap failed: {e}"));
+            winrec::beep(false);
+        }
+    }
+}
+
+/// A swap to the whole screen is for one recording: with the setting on, the clip
+/// that was just saved ends it. Waits for the "saved" beep to finish first.
+fn back_to_games_after_clip() {
+    let s = settings::get();
+    if !(SWAPPED.load(Ordering::SeqCst) && screen_now(&s) && s.swap_back_after_clip) || GOING_BACK.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(|| {
+        std::thread::sleep(Duration::from_millis(700));
+        let s = settings::get();
+        if SWAPPED.load(Ordering::SeqCst) && screen_now(&s) {
+            match swap_mode() {
+                Ok(_) => winrec::beep_mode(false),
+                Err(e) => rec_log(&format!("going back to games failed: {e}")),
+            }
+        }
+        GOING_BACK.store(false, Ordering::SeqCst);
+    });
 }
 
 pub fn running_apps() -> Vec<crate::winrec::RunningApp> {

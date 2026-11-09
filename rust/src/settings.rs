@@ -46,6 +46,8 @@ pub struct Settings {
     // Replay buffer - see recorder.rs.
     pub record_enabled: bool,
     pub record_mode: String, // "game" follows the game window, "screen" records the monitor
+    /// Windows' name of the monitor "screen" mode records (\.DISPLAY2); "" is the main one.
+    pub record_monitor: String,
     pub replay_seconds: i32,
     pub record_fps: i32,
     pub record_quality: i32, // 1 best .. 51 worst; 23 is typical
@@ -53,6 +55,10 @@ pub struct Settings {
     pub record_codec: String, // "av1" where the GPU can; anything else is H.264
     pub record_mic: bool,
     pub hotkey: String,
+    /// Flips between games only and whole screen until the app restarts (recorder.rs).
+    pub swap_hotkey: String,
+    /// After a flip to whole screen, one saved clip flips back.
+    pub swap_back_after_clip: bool,
     /// Keeps OBS's buffer in RAM rather than in files on disk.
     pub replay_in_memory: bool,
     /// Saves a clip of every kill, where the game reports them (autoclip.rs).
@@ -80,6 +86,7 @@ impl Default for Settings {
             always_delete_source: false,
             record_enabled: false,
             record_mode: "game".into(),
+            record_monitor: String::new(),
             replay_seconds: 60,
             record_fps: 60,
             record_quality: 23,
@@ -90,6 +97,8 @@ impl Default for Settings {
             // as well. Not Alt+Z (GeForce Experience) or Alt+R (AMD), and games
             // seldom bind Alt+C.
             hotkey: "Alt+C".into(),
+            swap_hotkey: "Ctrl+Alt+Insert".into(),
+            swap_back_after_clip: true,
             replay_in_memory: false,
             auto_clip: false,
             custom_apps: Vec::new(),

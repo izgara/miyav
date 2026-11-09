@@ -36,11 +36,11 @@ pub struct CustomApp {
 /// for games: browsers, chat, players, launchers, remote desktops.
 static NOT_GAMES: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     "chrome msedge firefox opera opera_gx brave vivaldi thorium arc zen librewolf waterfox msedgewebview2
-     discord discordptb discordcanary vesktop serein telegram ayugram kotatogram whatsapp signal slack teams ms-teams zoom skype element
-     spotify vlc mpc-hc64 mpc-hc mpc-be64 potplayermini64 potplayer mpv wmplayer microsoft.media.player applemusic itunes
+     discord discordptb discordcanary vesktop serein telegram ayugram kotatogram 64gram luxurygram unigram whatsapp signal slack teams ms-teams zoom skype element
+     spotify spotifast zapfast yapfast vlcmpc-hc64 mpc-hc mpc-be64 potplayermini64 potplayer mpv wmplayer microsoft.media.player applemusic itunes
      steam steamwebhelper epicgameslauncher epicwebhelper riotclientservices riotclientux riotclientuxrender leagueclient leagueclientux leagueclientuxrender
      galaxyclient upc ubisoftconnect eadesktop eabackgroundservice battle.net agent xboxpcapp gamebar
-     obs64 obs32 medal sharex streamlabs nvidia amdrsserv radeonsoftware
+     obs64 obs32 medal sharex flameshot greenshot lightshot snippingtool screenclippinghost streamlabs nvidia amdrsserv radeonsoftware
      mstsc msrdc vmware vmware-vmx virtualboxvm parsecd moonlight anydesk teamviewer rustdesk
      code devenv idea64 rider64 pycharm64 winword excel powerpnt onenote outlook olk acrobat acrord32 notepad notepad++ obsidian notion
      explorer applicationframehost systemsettings searchhost startmenuexperiencehost shellexperiencehost lockapp textinputhost
@@ -160,6 +160,21 @@ pub fn remove_custom_app(exe: &str) -> Result<(), String> {
 
 pub fn is_not_game(exe: &str) -> bool {
     NOT_GAMES.contains(exe_name(exe).to_lowercase().as_str())
+}
+
+/// A window class that belongs to a desktop app framework rather than a game
+/// engine: Qt (Telegram forks, Flameshot's capture overlay), Chromium/Electron/
+/// CEF, WinForms, WPF, WinUI, Tk, wxWidgets, GTK, and winit's default class
+/// (egui apps). Their media viewers and screenshot overlays cover the monitor
+/// without a title bar just as a game does. Only consulted for programs no store
+/// or the known-games list claims; engines use their own classes (UnityWndClass,
+/// UnrealWindow, SDL_app, GLFW30, ...).
+pub fn app_window_class(class: &str) -> bool {
+    (class.starts_with("Qt") && class.contains("QWindow"))
+        || ["Chrome_WidgetWin_", "WindowsForms10.", "HwndWrapper[", "WinUIDesktopWin32WindowClass", "TkTopLevel", "wxWindow", "gdkSurface", "gdkWindow"]
+            .iter()
+            .any(|p| class.starts_with(p))
+        || class == "Window Class"
 }
 
 /// An exe installed for the current user only, under %LOCALAPPDATA%\Programs:
@@ -393,6 +408,18 @@ mod tests {
         assert!(custom_app(r"C:\Other\chrome.exe").is_none());
         settings::update(|s| s.custom_apps.clear());
         assert!(is_not_game(r"C:\x\Serein.exe"));
+        assert!(is_not_game(r"C:\AMD\Portable\AyuGram\LuxuryGram.exe"));
+        assert!(is_not_game(r"C:\Program Files\Flameshot\bin\flameshot.exe"));
+    }
+
+    #[test]
+    fn app_window_classes() {
+        for c in ["Qt662QWindowIcon", "Qt5153QWindowToolSaveBits", "Chrome_WidgetWin_1", "WindowsForms10.Window.8.app.0.1", "HwndWrapper[App;;1]", "Window Class"] {
+            assert!(app_window_class(c), "{c}");
+        }
+        for c in ["UnityWndClass", "UnrealWindow", "SDL_app", "GLFW30", "Valve001", "RiotWindowClass", "LWJGL"] {
+            assert!(!app_window_class(c), "{c}");
+        }
     }
 
     // Riot's install list names VALORANT as <root>\VALORANT\live, which once put

@@ -69,6 +69,7 @@ pub const TITLE_MIX: &str = "PC audio + mic";
 #[derive(Clone, Copy)]
 enum Kind {
     Desktop, // everything the speakers play
+    DesktopButOurs, // the same, minus this app and its children: the save-clip beeps
     Mic,     // the default microphone
     Process(u32), // one program and its children, nothing else
 }
@@ -85,7 +86,15 @@ pub fn open_tracks(pid: u32, mic: bool) -> Vec<AudioTrack> {
     }
     let mut tracks = Vec::new();
     for (kind, title) in specs {
-        match AudioTrack::open(kind, title) {
+        let opened = match kind {
+            // Not on every Windows build, and a clip with the beep beats a clip with no sound.
+            Kind::Desktop => AudioTrack::open(Kind::DesktopButOurs, title).or_else(|e| {
+                rec_log(&format!("{title} will include the beeps: {e}"));
+                AudioTrack::open(Kind::Desktop, title)
+            }),
+            _ => AudioTrack::open(kind, title),
+        };
+        match opened {
             Ok(t) => tracks.push(t),
             Err(e) => rec_log(&format!("recording without {title}: {e}")),
         }
@@ -289,7 +298,7 @@ static HANDLER: std::sync::OnceLock<Handler> = std::sync::OnceLock::new();
 struct LoopbackParams {
     kind: u32, // AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK = 1
     pid: u32,
-    mode: u32, // 0: include the process tree
+    mode: u32, // 0: only the process tree, 1: everything but it
 }
 
 #[repr(C)]
@@ -301,7 +310,7 @@ struct PropVariantBlob {
     blob: *const LoopbackParams,
 }
 
-unsafe fn open_process_client(pid: u32) -> Result<Unk, String> {
+unsafe fn open_process_client(pid: u32, mode: u32) -> Result<Unk, String> {
     type Activate = unsafe extern "system" fn(*const u16, *const GUID, *const PropVariantBlob, *const Handler, *mut Unk) -> i32;
     let lib = LoadLibraryW(wide("mmdevapi.dll").as_ptr());
     let Some(f) = GetProcAddress(lib, b"ActivateAudioInterfaceAsync\0".as_ptr()) else {
@@ -312,7 +321,7 @@ unsafe fn open_process_client(pid: u32) -> Result<Unk, String> {
     let (tx, rx) = mpsc::channel();
     *ACTIVATED.lock().unwrap() = Some(tx);
 
-    let params = LoopbackParams { kind: 1, pid, mode: 0 };
+    let params = LoopbackParams { kind: 1, pid, mode };
     let pv = PropVariantBlob {
         vt: 65, // VT_BLOB
         pad: [0; 3],
@@ -361,7 +370,11 @@ unsafe fn start_stream(kind: Kind) -> Result<Stream, String> {
         Kind::Mic => open_device_client(true)?,
         Kind::Process(pid) => {
             flags |= STREAM_LOOPBACK;
-            open_process_client(pid)?
+            open_process_client(pid, 0)?
+        }
+        Kind::DesktopButOurs => {
+            flags |= STREAM_LOOPBACK;
+            open_process_client(std::process::id(), 1)?
         }
     };
     let mut s = Stream { client, cc: null_mut(), event: 0 };

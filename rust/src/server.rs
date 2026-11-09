@@ -12,7 +12,7 @@ use tiny_http::{Header, Method, Response, Server, StatusCode};
 
 use crate::job::{self, Ctx};
 use crate::settings::{self, QUALITY_PRESETS};
-use crate::{ffmpeg, games, recorder, storage, update, win, window};
+use crate::{ffmpeg, games, recorder, storage, update, win, window, winrec};
 
 static UI: Dir = include_dir!("$CARGO_MANIFEST_DIR/../ui");
 
@@ -316,11 +316,12 @@ fn settings_get() -> Reply {
         "quality": s.quality, "setupDone": s.setup_done,
         "alwaysDeleteSource": s.always_delete_source,
         "presets": &*QUALITY_PRESETS,
-        "recordEnabled": s.record_enabled, "recordMode": s.record_mode,
+        "recordEnabled": s.record_enabled, "recordMode": s.record_mode, "recordMonitor": s.record_monitor,
         "replaySeconds": s.replay_seconds,
         "recordFps": s.record_fps, "recordQuality": s.record_quality,
         "recordEncoder": s.record_encoder, "recordCodec": s.record_codec,
         "recordMic": s.record_mic, "hotkey": s.hotkey,
+        "swapHotkey": s.swap_hotkey, "swapBackAfterClip": s.swap_back_after_clip,
         "replayInMemory": s.replay_in_memory, "autoClip": s.auto_clip,
         "startWithWindows": win::autostart_enabled(),
         "storageLimitGB": s.storage_limit_gb, "quietSaves": s.quiet_saves,
@@ -356,6 +357,7 @@ fn settings_post(r: &Req) -> Reply {
         bo("alwaysDeleteSource", &mut s.always_delete_source);
         bo("recordEnabled", &mut s.record_enabled);
         st("recordMode", &mut s.record_mode);
+        st("recordMonitor", &mut s.record_monitor);
         i3("replaySeconds", &mut s.replay_seconds);
         i3("recordFps", &mut s.record_fps);
         i3("recordQuality", &mut s.record_quality);
@@ -364,6 +366,10 @@ fn settings_post(r: &Req) -> Reply {
         bo("replayInMemory", &mut s.replay_in_memory);
         bo("autoClip", &mut s.auto_clip);
         bo("recordMic", &mut s.record_mic);
+        bo("swapBackAfterClip", &mut s.swap_back_after_clip);
+        if let Some(v) = b["swapHotkey"].as_str() {
+            s.swap_hotkey = v.trim().to_string();
+        }
         if let Some(v) = b["hotkey"].as_str() {
             s.hotkey = v.trim().to_string();
         }
@@ -533,6 +539,11 @@ fn route(r: &Req) -> Reply {
                 Err(e) => err(500, e),
             }
         }
+        "/api/rec/monitors" => ok(serde_json::to_value(winrec::monitors()).unwrap()),
+        "/api/rec/swap" => match recorder::swap_mode() {
+            Ok(_) => ok(serde_json::to_value(recorder::status()).unwrap()),
+            Err(e) => err(400, e),
+        },
         "/api/rec/scan" => ok(scan_pc()),
         "/api/rec/games" => {
             let mut games = games::game_library();

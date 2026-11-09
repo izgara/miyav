@@ -196,7 +196,8 @@ fn run(
 ///
 /// main_audio picks which audio track comes first - the one browsers and
 /// most players play - for a recording that keeps game, mic and the mix apart; -1
-/// keeps the order. Every track is kept either way, so nothing is lost.
+/// keeps the order. Every track is kept either way, so nothing is lost - unless it
+/// is NO_AUDIO, which drops them all.
 pub fn cut_lossless(
     ctx: &Ctx,
     input: &Path,
@@ -228,7 +229,13 @@ pub fn cut_lossless(
     run(ctx, &args, end - start, "cut", 1, 0, on_progress)
 }
 
+/// main_audio value for a cut with no audio at all.
+const NO_AUDIO: i32 = -2;
+
 fn audio_map_args(main_audio: i32, n: i32) -> Vec<String> {
+    if main_audio == NO_AUDIO {
+        return Vec::new();
+    }
     let mut args = Vec::new();
     if main_audio <= 0 || main_audio >= n {
         args.extend(["-map".to_string(), "0:a?".to_string()]);
@@ -442,6 +449,7 @@ mod tests {
     fn audio_order() {
         assert_eq!(audio_map_args(0, 3), ["-map", "0:a?"]);
         assert_eq!(audio_map_args(5, 3), ["-map", "0:a?"]);
+        assert!(audio_map_args(NO_AUDIO, 3).is_empty());
         let a = audio_map_args(2, 3);
         assert_eq!(a[..6], ["-map", "0:a:2", "-map", "0:a:0", "-map", "0:a:1"]);
         assert_eq!(a[6..8], ["-disposition:a:0", "default"]);

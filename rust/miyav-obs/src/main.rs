@@ -10,6 +10,7 @@
 //! stdin/stdout, one JSON object per line. libobs is GPL, so this program is too; it
 //! only talks to the app through that pipe.
 mod libobs;
+mod pcaudio;
 
 use libobs::*;
 use serde::Deserialize;
@@ -39,6 +40,7 @@ struct Command {
     max_size_mb: i64,
     max_kbps: i64,    // ceiling on the video bitrate, NVENC and x264
     segment_sec: i64, // >0: buffer in files of this length in dir, not in memory
+    exclude_pid: u32, // >0: PC audio leaves this process out, the app and its beeps
 }
 
 static OUT: Mutex<()> = Mutex::new(());
@@ -189,6 +191,7 @@ struct Recording {
     scene: usize,
     sources: Vec<usize>,
     encoders: Vec<usize>,
+    pc: Option<pcaudio::PcAudio>, // before the sources: it feeds one of them
 }
 
 /// Signalled when the replay buffer has finished stopping.
@@ -305,7 +308,21 @@ fn start(c: &Command, core: &Path) -> Result<Recording, String> {
         call("obs_set_output_source", &[channel, src]);
         r.sources.push(src);
     };
-    audio(&mut r, 1, "wasapi_output_capture", "PC audio", pc_mix, &[("device_id", V::S("default".into()))]);
+    let ours = (c.exclude_pid != 0).then(|| pcaudio::start(c.exclude_pid));
+    match ours {
+        Some(Ok(p)) => {
+            call("obs_source_set_audio_mixers", &[p.source, pc_mix as usize]);
+            call("obs_set_output_source", &[1, p.source]);
+            r.sources.push(p.source);
+            r.pc = Some(p);
+        }
+        other => {
+            if let Some(Err(e)) = other {
+                logf(&format!("PC audio will include the beeps: {e}"));
+            }
+            audio(&mut r, 1, "wasapi_output_capture", "PC audio", pc_mix, &[("device_id", V::S("default".into()))]);
+        }
+    }
     if !c.window.is_empty() {
         // The game's process alone, found by the same window as the video.
         audio(
@@ -423,6 +440,7 @@ impl Recording {
     }
 
     fn release(&mut self) {
+        self.pc = None;
         for ch in 0..6 {
             call("obs_set_output_source", &[ch, 0]);
         }

@@ -114,6 +114,7 @@
           <div id="recErr" class="rec-err hidden"></div>
           <div id="recNotice" class="rec-notice hidden"></div>
           <div class="row">
+            <button id="recSwap" class="btn ghost small hidden"></button>
             <button id="recSave" class="btn ghost small">Save clip now</button>
             <span class="muted">or press <b id="recKeyHint">Alt+C</b> in game &mdash; two rising beeps mean saved, a low buzz means it failed.</span>
           </div>
@@ -127,100 +128,120 @@
           <p class="muted">Closing the window keeps the app in the tray (bottom right, by the clock). Right-click its icon to quit.</p>
         </div>
 
-        <div class="card">
-          <h2>What to record</h2>
-          <label>Mode</label>
-          <select id="recMode">
-            <option value="game">Games only &mdash; follows the game you are playing</option>
-            <option value="screen">Whole screen &mdash; always on</option>
-          </select>
-          <label>Save-clip hotkey</label>
-          <input id="recHotkey" class="hotkey" type="text" readonly placeholder="Click, then press the keys" />
-          <label>Clip length (seconds kept in the buffer)</label>
-          <select id="recSeconds">
-            <option value="30">30 seconds</option>
-            <option value="60">1 minute</option>
-            <option value="120">2 minutes</option>
-            <option value="300">5 minutes</option>
-          </select>
-          <label class="check"><input id="recMic" type="checkbox" /> Record my microphone</label>
-          <p class="muted">Clips get the game, PC audio and your mic as separate tracks, plus a mix of them all; you pick which to keep when you cut.</p>
-          <label class="check"><input id="recNotify" type="checkbox" /> Show a notification when a clip is saved &mdash; click it to trim the clip</label>
-          <label class="check"><input id="recAutoClip" type="checkbox" /> Save a clip of every kill automatically &mdash; League of Legends and CS2</label>
-        </div>
-
-        <div class="card">
-          <h2>Disk space</h2>
-          <p class="muted" id="storeUse">Saved clips take up …</p>
-          <label>Keep saved clips under</label>
-          <select id="recStorage">
-            <option value="0">No limit &mdash; keep everything</option>
-            <option value="20">20 GB</option>
-            <option value="50">50 GB</option>
-            <option value="100">100 GB</option>
-            <option value="200">200 GB</option>
-            <option value="500">500 GB</option>
-          </select>
-          <p class="muted">Past the limit the oldest saved clips are deleted, for good. Only clips this app saved count; your trimmed clips and other recordings are never touched.</p>
-        </div>
-
-        <div class="card">
-          <h2>Quality</h2>
-          <label>Frame rate</label>
-          <select id="recFps">
-            <option value="30">30 fps</option>
-            <option value="60">60 fps</option>
-            <option value="120">120 fps</option>
-          </select>
-          <label>Picture quality</label>
-          <select id="recQuality">
-            <option value="19">High &mdash; larger files</option>
-            <option value="23">Balanced &mdash; recommended</option>
-            <option value="28">Small &mdash; smallest files</option>
-          </select>
-          <label>Encoder</label>
-          <select id="recEncoder">
-            <option value="">Automatic &mdash; best that works</option>
-            <option value="h264_nvenc">NVIDIA (NVENC)</option>
-            <option value="h264_amf">AMD (AMF)</option>
-            <option value="h264_mf">Windows hardware encoder (Intel)</option>
-            <option value="libx264">CPU (x264) &mdash; costs game performance</option>
-          </select>
-          <label>Video format</label>
-          <select id="recCodec">
-            <option value="h264">H.264 &mdash; plays everywhere</option>
-            <option value="av1">AV1 &mdash; smaller files; newer NVIDIA cards, some phones cannot play it</option>
-          </select>
-          <label>Keep the buffer</label>
-          <select id="recBufferMem">
-            <option value="disk">On disk &mdash; uses the least memory</option>
-            <option value="memory">In memory &mdash; no disk writes until you save</option>
-          </select>
-          <p class="muted" id="recSavedMsg">Changes apply straight away; the buffer starts over.</p>
-        </div>
-
-        <div class="card">
-          <div class="rec-head">
-            <h2>Your PC</h2>
-            <div class="spacer"></div>
-            <button id="scanBtn" class="btn ghost small">Scan my PC</button>
-          </div>
-          <div id="scanOut" class="scan muted">Checks your graphics card, screen and disk, and suggests the settings that suit them.</div>
-          <div class="row hidden" id="scanApplyRow">
-            <button id="scanApply" class="btn primary small">Use recommended settings</button>
-            <span id="scanRec" class="muted"></span>
+        <div class="settings-col">
+          <div class="card">
+            <div class="rec-head">
+              <h2>Games found</h2>
+              <div class="spacer"></div>
+              <button id="addAppBtn" class="btn ghost small">Add an app</button>
+            </div>
+            <p class="muted">Installed through Steam, Epic, Riot, GOG, Ubisoft or the Xbox app. These are recorded even windowed; anything else only when it is fullscreen. Add any other program, Discord say, to record it too. A game being recorded stays recorded when you tab over to it.</p>
+            <div id="appPick" class="gamelist hidden"></div>
+            <div id="gameList" class="gamelist"></div>
           </div>
         </div>
 
-        <div class="card">
-          <div class="rec-head">
-            <h2>Games found</h2>
-            <div class="spacer"></div>
-            <button id="addAppBtn" class="btn ghost small">Add an app</button>
+        <div class="settings-col">
+          <div class="card">
+            <h2>What to record</h2>
+            <label>Mode</label>
+            <select id="recMode">
+              <option value="game">Games only &mdash; follows the game you are playing</option>
+              <option value="screen">Whole screen &mdash; always on</option>
+            </select>
+            <div id="recMonitorRow" class="hidden">
+              <label>Monitor</label>
+              <select id="recMonitor"></select>
+            </div>
+            <label>Clip length (seconds kept in the buffer)</label>
+            <select id="recSeconds">
+              <option value="30">30 seconds</option>
+              <option value="60">1 minute</option>
+              <option value="120">2 minutes</option>
+              <option value="300">5 minutes</option>
+            </select>
+            <label class="check"><input id="recMic" type="checkbox" /> Record my microphone</label>
+            <p class="muted">Clips get the game, PC audio and your mic as separate tracks, plus a mix of them all; you pick which to keep when you cut.</p>
+            <label class="check"><input id="recAutoClip" type="checkbox" /> Save a clip of every kill automatically &mdash; League of Legends and CS2</label>
           </div>
-          <p class="muted">Installed through Steam, Epic, Riot, GOG, Ubisoft or the Xbox app. These are recorded even windowed; anything else only when it is fullscreen. Add any other program, Discord say, to record it too. A game being recorded stays recorded when you tab over to it.</p>
-          <div id="appPick" class="gamelist hidden"></div>
-          <div id="gameList" class="gamelist"></div>
+
+          <div class="card">
+            <h2>Hotkeys</h2>
+            <label>Save a clip</label>
+            <input id="recHotkey" class="hotkey" type="text" readonly placeholder="Click, then press the keys" />
+            <label class="check"><input id="recNotify" type="checkbox" /> Show a notification when a clip is saved &mdash; click it to trim the clip</label>
+            <label>Swap between games only and whole screen</label>
+            <input id="recSwapHotkey" class="hotkey" type="text" readonly placeholder="Click, then press the keys" />
+            <div id="recSwapErr" class="rec-err hidden"></div>
+            <label class="check"><input id="recSwapBack" type="checkbox" /> After a swap to whole screen, go back to games only once a clip is saved</label>
+          </div>
+        </div>
+
+        <div class="settings-col">
+          <div class="card">
+            <h2>Quality</h2>
+            <label>Frame rate</label>
+            <select id="recFps">
+              <option value="30">30 fps</option>
+              <option value="60">60 fps</option>
+              <option value="120">120 fps</option>
+            </select>
+            <label>Picture quality</label>
+            <select id="recQuality">
+              <option value="19">High &mdash; larger files</option>
+              <option value="23">Balanced &mdash; recommended</option>
+              <option value="28">Small &mdash; smallest files</option>
+            </select>
+            <label>Encoder</label>
+            <select id="recEncoder">
+              <option value="">Automatic &mdash; best that works</option>
+              <option value="h264_nvenc">NVIDIA (NVENC)</option>
+              <option value="h264_amf">AMD (AMF)</option>
+              <option value="h264_mf">Windows hardware encoder (Intel)</option>
+              <option value="libx264">CPU (x264) &mdash; costs game performance</option>
+            </select>
+            <label>Video format</label>
+            <select id="recCodec">
+              <option value="h264">H.264 &mdash; plays everywhere</option>
+              <option value="av1">AV1 &mdash; smaller files; newer NVIDIA cards, some phones cannot play it</option>
+            </select>
+            <p class="muted" id="recSavedMsg">Changes apply straight away; the buffer starts over.</p>
+          </div>
+
+          <div class="card">
+            <h2>Storage</h2>
+            <label>Keep the buffer</label>
+            <select id="recBufferMem">
+              <option value="disk">On disk &mdash; uses the least memory</option>
+              <option value="memory">In memory &mdash; no disk writes until you save</option>
+            </select>
+            <label>Keep saved clips under</label>
+            <select id="recStorage">
+              <option value="0">No limit &mdash; keep everything</option>
+              <option value="20">20 GB</option>
+              <option value="50">50 GB</option>
+              <option value="100">100 GB</option>
+              <option value="200">200 GB</option>
+              <option value="500">500 GB</option>
+            </select>
+            <p class="muted" id="storeUse">Saved clips take up …</p>
+            <p class="muted">Past the limit the oldest saved clips are deleted, for good. Only clips this app saved count; your trimmed clips and other recordings are never touched.</p>
+          </div>
+        </div>
+
+        <div class="settings-col">
+          <div class="card">
+            <div class="rec-head">
+              <h2>Your PC</h2>
+              <div class="spacer"></div>
+              <button id="scanBtn" class="btn ghost small">Scan my PC</button>
+            </div>
+            <div id="scanOut" class="scan muted">Checks your graphics card, screen and disk, and suggests the settings that suit them.</div>
+            <div class="row hidden" id="scanApplyRow">
+              <button id="scanApply" class="btn primary small">Use recommended settings</button>
+              <span id="scanRec" class="muted"></span>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -239,42 +260,48 @@
     <!-- SETTINGS -->
     <section id="tab-settings" class="panel">
       <div class="settings-wrap">
-        <div class="card">
-          <h2>Folders</h2>
-          <label>Recordings <span class="muted">(sub-folders are scanned)</span></label>
-<div class="picker"><input id="setRaw" type="text" /><button class="btn ghost pickbtn" data-pick="setRaw" data-title="Choose your recordings folder">Choose…</button></div>
-          <label>Clips</label>
-<div class="picker"><input id="setClips" type="text" /><button class="btn ghost pickbtn" data-pick="setClips" data-title="Choose where clips are saved">Choose…</button></div>
-          <div class="row">
-            <button id="setSave" class="btn primary">Save</button>
-            <span id="setMsg" class="muted"></span>
+        <div class="settings-col">
+          <div class="card">
+            <h2>Folders</h2>
+            <label>Recordings <span class="muted">(sub-folders are scanned)</span></label>
+            <div class="picker"><input id="setRaw" type="text" /><button class="btn ghost pickbtn" data-pick="setRaw" data-title="Choose your recordings folder">Choose…</button></div>
+            <label>Clips</label>
+            <div class="picker"><input id="setClips" type="text" /><button class="btn ghost pickbtn" data-pick="setClips" data-title="Choose where clips are saved">Choose…</button></div>
+            <div class="row">
+              <button id="setSave" class="btn primary">Save</button>
+              <span id="setMsg" class="muted"></span>
+            </div>
           </div>
         </div>
 
-        <div class="card">
-          <h2>Encoding</h2>
-          <label>Quality preset</label>
-          <select id="setQuality">
-            <option value="high">Extra safe &mdash; larger files</option>
-            <option value="balanced">Looks the same &mdash; recommended</option>
-            <option value="small">Small &mdash; some visible loss, caps at 1080p</option>
-          </select>
-          <p class="muted">Used by the Shrink button. Keeps the resolution and frame rate, plays on Discord and the web, and uses your graphics card when it can. The original is kept if a clip would not get smaller.</p>
+        <div class="settings-col">
+          <div class="card">
+            <h2>Encoding</h2>
+            <label>Quality preset</label>
+            <select id="setQuality">
+              <option value="high">Extra safe &mdash; larger files</option>
+              <option value="balanced">Looks the same &mdash; recommended</option>
+              <option value="small">Small &mdash; some visible loss, caps at 1080p</option>
+            </select>
+            <p class="muted">Used by the Shrink button. Keeps the resolution and frame rate, plays on Discord and the web, and uses your graphics card when it can. The original is kept if a clip would not get smaller.</p>
+          </div>
         </div>
 
-        <div class="card">
-          <h2>After cutting</h2>
-          <label class="check"><input id="setAlwaysDel" type="checkbox" /> Always delete the original recording after cutting</label>
-          <p class="muted">Off by default. With this off you are asked each time. There is no trash folder, so deletions are permanent.</p>
-        </div>
+        <div class="settings-col">
+          <div class="card">
+            <h2>After cutting</h2>
+            <label class="check"><input id="setAlwaysDel" type="checkbox" /> Always delete the original recording after cutting</label>
+            <p class="muted">Off by default. With this off you are asked each time. There is no trash folder, so deletions are permanent.</p>
+          </div>
 
-        <div class="card">
-          <h2>About</h2>
-          <p class="muted" id="aboutVersion"></p>
-          <p class="muted">Free and open source: github.com/izgara/miyav</p>
-          <div class="row">
-            <button id="updCheck" class="btn ghost small">Check for updates</button>
-            <span id="updMsg" class="muted"></span>
+          <div class="card">
+            <h2>About</h2>
+            <p class="muted" id="aboutVersion"></p>
+            <p class="muted">Free and open source: github.com/izgara/miyav</p>
+            <div class="row">
+              <button id="updCheck" class="btn ghost small">Check for updates</button>
+              <span id="updMsg" class="muted"></span>
+            </div>
           </div>
         </div>
       </div>

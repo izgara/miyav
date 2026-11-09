@@ -130,6 +130,7 @@ pub fn start(t: &Target, s: &Settings, enc: &RecEncoder) -> Result<Arc<ObsProc>,
         "fps": s.record_fps, "encoder": enc_id, "quality": quality,
         "seconds": s.replay_seconds, "dir": dir.display().to_string(), "mic": s.record_mic,
         "max_kbps": max_kbps(w, h, s.record_fps), "segment_sec": segment,
+        "exclude_pid": std::process::id(),
     });
     if let Err(e) = p.send(&start) {
         p.stop();
@@ -452,6 +453,36 @@ mod tests {
         // The empty one is skipped when reached.
         let got = choose_segments(all, &next, 60);
         assert_eq!(got.len(), 5);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Plays the save-clip beeps while the real helper records, and leaves a clip for
+    /// checking that its PC audio track (0:a:0) does not hold them. Audible, so only run
+    /// when asked: MIYAV_BEEP_CLIP=<output.mp4>, MIYAV_BEEP_EXCLUDE=0 for the control run
+    /// that should hear them, and MIYAV_OBS_DIR as below. A sound from outside this
+    /// process tree, played during the first 12 s, should be in the track either way.
+    #[test]
+    fn obs_beep_live() {
+        let (Some(bin), Some(out)) = (std::env::var_os("MIYAV_OBS_DIR"), std::env::var_os("MIYAV_BEEP_CLIP")) else { return };
+        let pid = if std::env::var("MIYAV_BEEP_EXCLUDE").as_deref() == Ok("0") { 0 } else { std::process::id() };
+        let dir = std::env::temp_dir().join(format!("miyav-beep-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (p, ready) = spawn(&Path::new(&bin).join("miyav-obs.exe"), Some(dir.clone()), false).unwrap();
+        p.send(&json!({"cmd": "start", "window": "nosuch:nosuch:nosuchgame_miyav.exe",
+            "width": 1280, "height": 720, "fps": 30, "encoder": "obs_nvenc_h264_tex", "quality": 30, "seconds": 30,
+            "dir": dir.display().to_string(), "mic": false, "max_kbps": 8000, "segment_sec": SEGMENT_SEC,
+            "exclude_pid": pid}))
+        .unwrap();
+        let e = ready.recv_timeout(Duration::from_secs(30)).unwrap();
+        assert_eq!(e.event, "started", "{}", e.msg);
+        std::thread::sleep(Duration::from_secs(4));
+        for _ in 0..4 {
+            crate::winrec::beep(true);
+            std::thread::sleep(Duration::from_secs(2));
+        }
+        std::thread::sleep(Duration::from_secs(6));
+        p.save(16, Path::new(&out), &titles(false), None).unwrap();
+        p.stop();
         let _ = std::fs::remove_dir_all(dir);
     }
 

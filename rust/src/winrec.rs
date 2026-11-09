@@ -210,6 +210,47 @@ pub fn set_hotkey(spec: &str, f: Option<fn()>) -> Result<(), String> {
     }
 }
 
+static SWAP_HOTKEY: Mutex<Option<Hotkey>> = Mutex::new(None);
+
+/// The second hotkey, which only swaps what is recorded. RegisterHotKey alone is
+/// enough for it: it is pressed on purpose, not mid-fight with Shift held. "" or no
+/// function just removes it.
+pub fn set_swap_hotkey(spec: &str, f: Option<fn()>) -> Result<(), String> {
+    let mut hk = SWAP_HOTKEY.lock().unwrap();
+    if let Some(h) = hk.take() {
+        unsafe { PostThreadMessageW(h.thread, WM_QUIT, 0, 0) };
+        let _ = h.done.recv();
+    }
+    let Some(f) = f.filter(|_| !spec.is_empty()) else { return Ok(()) };
+    let (mods, vk) = parse_hotkey(spec)?;
+    let (ready_tx, ready_rx) = mpsc::channel::<Result<u32, String>>();
+    let (done_tx, done_rx) = mpsc::channel();
+    let spec = spec.to_string();
+    std::thread::spawn(move || unsafe {
+        let _done = done_tx;
+        if RegisterHotKey(0, 2, mods | MOD_NOREPEAT, vk) == 0 {
+            let _ = ready_tx.send(Err(format!("{spec} is already used by another program - pick a different swap hotkey")));
+            return;
+        }
+        let _ = ready_tx.send(Ok(GetCurrentThreadId()));
+        let mut msg: MSG = std::mem::zeroed();
+        while GetMessageW(&mut msg, 0, 0, 0) > 0 {
+            if msg.message == WM_HOTKEY_MSG {
+                std::thread::spawn(f);
+            }
+        }
+        UnregisterHotKey(0, 2);
+    });
+    match ready_rx.recv() {
+        Ok(Ok(thread)) => {
+            *hk = Some(Hotkey { thread, done: done_rx });
+            Ok(())
+        }
+        Ok(Err(e)) => Err(e),
+        Err(_) => Err("the swap hotkey thread stopped".into()),
+    }
+}
+
 /// The key under Esc, "Backquote" in a hotkey. It is named by where it sits (scan
 /// code 0x29), as the browser names it; which virtual key it sends depends on the
 /// keyboard layout.
@@ -305,12 +346,21 @@ fn tone_wav(freqs: &[f64], each_ms: u32) -> Vec<u8> {
 // Saved: two quick rising notes. Failed: one low, longer buzz.
 static OK_TONE: LazyLock<Vec<u8>> = LazyLock::new(|| tone_wav(&[880.0, 1320.0], 90));
 static FAIL_TONE: LazyLock<Vec<u8>> = LazyLock::new(|| tone_wav(&[220.0], 350));
+// Swapped: three rising notes to whole screen, two falling back to games.
+static SCREEN_TONE: LazyLock<Vec<u8>> = LazyLock::new(|| tone_wav(&[523.0, 659.0, 784.0], 90));
+static GAMES_TONE: LazyLock<Vec<u8>> = LazyLock::new(|| tone_wav(&[784.0, 523.0], 120));
 
 /// The only feedback that reaches a player in a fullscreen game. It plays our own
 /// tones: system sounds are whatever the user's sound scheme says, and on plenty of
 /// PCs "ok" and "error" are the same ding.
 pub fn beep(ok: bool) {
     let w: &Vec<u8> = if ok { &OK_TONE } else { &FAIL_TONE };
+    unsafe { PlaySoundW(w.as_ptr() as *const u16, 0, SND_MEMORY | SND_ASYNC) };
+}
+
+/// Tells a player in a fullscreen game which way the recording just swapped.
+pub fn beep_mode(screen: bool) {
+    let w: &Vec<u8> = if screen { &SCREEN_TONE } else { &GAMES_TONE };
     unsafe { PlaySoundW(w.as_ptr() as *const u16, 0, SND_MEMORY | SND_ASYNC) };
 }
 
@@ -438,7 +488,7 @@ pub fn game_in_front() -> Target {
             }
             return target(name);
         }
-        if games::per_user_app(&exe) {
+        if games::per_user_app(&exe) || games::app_window_class(&class_name(hwnd)) {
             return Target::default();
         }
         // A maximized app on a monitor without a taskbar covers the whole monitor as
@@ -500,6 +550,138 @@ fn dxgi_output_of(mon: HMONITOR) -> Option<i32> {
         }
         release(factory);
         found
+    }
+}
+
+/// A monitor the player can choose for whole-screen recording.
+#[derive(Clone, Debug, Serialize)]
+pub struct Monitor {
+    /// Windows' name for it, \\.\DISPLAY2. Kept in the settings rather than the DXGI
+    /// number, which shifts when another monitor is unplugged.
+    pub id: String,
+    pub label: String,
+    pub primary: bool,
+    /// The number ddagrab's output_idx wants; None on a GPU it cannot reach.
+    pub output: Option<i32>,
+}
+
+struct Found {
+    id: String,
+    rect: RECT,
+    primary: bool,
+    size: (u32, u32),
+    output: Option<i32>,
+}
+
+/// Every monitor, the main one first. DXGI's output 0 is not necessarily the main
+/// monitor, which is how whole-screen mode came to record the wrong one.
+pub fn monitors() -> Vec<Monitor> {
+    unsafe extern "system" fn each(mon: HMONITOR, _: HDC, _: *mut RECT, list: LPARAM) -> BOOL {
+        let list = &mut *(list as *mut Vec<Found>);
+        let mut mi: MONITORINFOEXW = std::mem::zeroed();
+        mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        if GetMonitorInfoW(mon, &mut mi as *mut MONITORINFOEXW as *mut MONITORINFO) != 0 {
+            let r = mi.monitorInfo.rcMonitor;
+            // In real pixels, as the monitor's rectangle depends on the DPI setting.
+            let mut dm: DEVMODEW = std::mem::zeroed();
+            dm.dmSize = std::mem::size_of::<DEVMODEW>() as u16;
+            let size = if EnumDisplaySettingsW(mi.szDevice.as_ptr(), ENUM_CURRENT_SETTINGS, &mut dm) != 0 {
+                (dm.dmPelsWidth, dm.dmPelsHeight)
+            } else {
+                ((r.right - r.left) as u32, (r.bottom - r.top) as u32)
+            };
+            let end = mi.szDevice.iter().position(|&c| c == 0).unwrap_or(mi.szDevice.len());
+            list.push(Found {
+                id: from_wide(&mi.szDevice[..end]),
+                rect: r,
+                primary: mi.monitorInfo.dwFlags & MONITORINFOF_PRIMARY != 0,
+                size,
+                output: dxgi_output_of(mon),
+            });
+        }
+        1
+    }
+    let mut found: Vec<Found> = Vec::new();
+    unsafe {
+        EnumDisplayMonitors(0, std::ptr::null(), Some(each), &mut found as *mut Vec<Found> as LPARAM);
+    }
+    found.sort_by_key(|m| (!m.primary, m.rect.left, m.rect.top));
+    let main = found.iter().find(|m| m.primary).map(|m| m.rect);
+    found
+        .iter()
+        .map(|m| Monitor {
+            id: m.id.clone(),
+            label: monitor_label(&m.id, m.size, m.primary, m.rect, main),
+            primary: m.primary,
+            output: m.output,
+        })
+        .collect()
+}
+
+/// "Monitor 2 - 1920x1080, left of main". The number is usually the one in Windows'
+/// display settings, and the side tells two identical monitors apart.
+fn monitor_label(id: &str, size: (u32, u32), primary: bool, r: RECT, main: Option<RECT>) -> String {
+    let num = id.trim_start_matches(|c: char| !c.is_ascii_digit());
+    let name = if num.is_empty() { id.to_string() } else { format!("Monitor {num}") };
+    let place = match main {
+        _ if primary => "main",
+        Some(p) if r.right <= p.left => "left of main",
+        Some(p) if r.left >= p.right => "right of main",
+        Some(p) if r.bottom <= p.top => "above main",
+        Some(p) if r.top >= p.bottom => "below main",
+        _ => "overlaps main",
+    };
+    format!("{name} \u{2014} {}\u{d7}{}, {place}", size.0, size.1)
+}
+
+/// The output to record: the chosen monitor, else the main one, else any it can reach.
+pub fn screen_output(list: &[Monitor], wanted: &str) -> i32 {
+    let reachable = || list.iter().filter(|m| m.output.is_some());
+    reachable()
+        .find(|m| !wanted.is_empty() && m.id == wanted)
+        .or_else(|| reachable().find(|m| m.primary))
+        .or_else(|| reachable().next())
+        .and_then(|m| m.output)
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod monitor_tests {
+    use super::*;
+
+    fn m(id: &str, primary: bool, output: Option<i32>) -> Monitor {
+        Monitor { id: id.into(), label: String::new(), primary, output }
+    }
+
+    #[test]
+    fn picks_the_right_output() {
+        // The case that was reported: the main monitor is not output 0.
+        let list = [m("A", false, Some(0)), m("B", true, Some(1))];
+        assert_eq!(screen_output(&list, ""), 1);
+        assert_eq!(screen_output(&list, "A"), 0);
+        // Unplugged since it was chosen.
+        assert_eq!(screen_output(&list, "C"), 1);
+        // On a GPU ddagrab cannot reach.
+        let list = [m("A", false, None), m("B", true, Some(0))];
+        assert_eq!(screen_output(&list, "A"), 0);
+        let list = [m("A", true, None), m("B", false, Some(2))];
+        assert_eq!(screen_output(&list, ""), 2);
+        assert_eq!(screen_output(&[], "A"), 0);
+    }
+
+    #[test]
+    fn labels() {
+        let main = RECT { left: 0, top: 0, right: 2560, bottom: 1440 };
+        let left = RECT { left: -1920, top: 0, right: 0, bottom: 1080 };
+        assert_eq!(monitor_label(r"\\.\DISPLAY2", (1920, 1080), false, left, Some(main)), "Monitor 2 \u{2014} 1920\u{d7}1080, left of main");
+        assert_eq!(monitor_label(r"\\.\DISPLAY1", (2560, 1440), true, main, Some(main)), "Monitor 1 \u{2014} 2560\u{d7}1440, main");
+    }
+
+    #[test]
+    fn this_pc() {
+        for m in monitors() {
+            println!("{m:?}");
+        }
     }
 }
 

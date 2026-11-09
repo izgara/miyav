@@ -167,6 +167,9 @@ main { flex: 1; overflow: hidden; position: relative; }
   border-radius: var(--r); padding: 18px; animation: rise .3s var(--ease) both;
 }
 .card h2 { font-size: 14px; margin: 0 0 4px; }
+.card h2.card-sec { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border-soft); }
+/* Cards stack inside columns, so a short one leaves no hole beside a tall one. */
+.settings-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 
 /* ---- modals ---- */
 .modal {

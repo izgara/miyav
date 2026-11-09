@@ -29,6 +29,7 @@ const MENU_SAVE: usize = 2;
 const MENU_RECORD: usize = 3;
 const MENU_AUTOSTART: usize = 4;
 const MENU_QUIT: usize = 5;
+const MENU_SWAP: usize = 6;
 
 const OFF: usize = 0;
 const IDLE: usize = 1;
@@ -264,6 +265,13 @@ unsafe fn menu(h: HWND) {
     add(MF_SEPARATOR, 0, "");
     add(0, MENU_OPEN, "Open Miyav");
     add(if st.enabled { 0 } else { MF_GRAYED }, MENU_SAVE, &format!("Save clip now\t{}", s.hotkey));
+    let swap = match (st.screen, st.swapped) {
+        (true, true) => "Back to games only",
+        (true, false) => "Switch to games only",
+        (false, true) => "Back to whole screen",
+        (false, false) => "Record whole screen",
+    };
+    add(if st.enabled { 0 } else { MF_GRAYED }, MENU_SWAP, &format!("{swap}	{}", s.swap_hotkey));
     add(check(st.enabled), MENU_RECORD, "Recording on");
     add(check(win::autostart_enabled()), MENU_AUTOSTART, "Start with Windows");
     add(MF_SEPARATOR, 0, "");
@@ -282,6 +290,13 @@ unsafe fn menu(h: HWND) {
         MENU_OPEN => window::show(),
         MENU_SAVE => {
             std::thread::spawn(recorder::save_from_hotkey);
+        }
+        MENU_SWAP => {
+            std::thread::spawn(|| {
+                if let Err(e) = recorder::swap_mode() {
+                    balloon("Could not swap", &e);
+                }
+            });
         }
         MENU_RECORD => {
             let on = !st.enabled;
