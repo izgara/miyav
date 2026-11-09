@@ -123,6 +123,7 @@ async function boot() {
   loadRaw();
   pollJob();
   recPoll();
+  watchLists();
   checkUpdate(false);
 }
 
@@ -235,6 +236,7 @@ function showPanel(name) {
   document.querySelectorAll('.panel').forEach((x) => x.classList.remove('active'));
   $('#tab-' + name).classList.add('active');
   if (name === 'record') { recFill(); loadGames(); loadStorage(); }
+  if (name === 'raw') checkLists();
   if (name === 'clips') loadClips();
 }
 document.querySelectorAll('.tab').forEach((t) => t.addEventListener('click', () => showPanel(t.dataset.tab)));
@@ -323,6 +325,7 @@ function makeCard(f, reload) {
 async function loadRaw() {
   try {
     state.groups = await api('/api/local?kind=raw');
+    noteShown('raw', state.groups);
     const all = state.groups.flatMap((g) => g.files);
     $('#rawLabel').textContent = all.length + ' files in ' + state.groups.length + ' folders';
 
@@ -392,12 +395,13 @@ function openGame(g) {
 async function refreshRaw() {
   const inGame = !$('#rawGame').classList.contains('hidden');
   const name = inGame && state.game ? state.game.name : null;
+  const top = $('#tab-raw').scrollTop;
   await loadRaw();
   if (!name) return;
   const g = state.groups.find((x) => x.name === name);
   // The folder can empty out while you are looking at it, in which case there
   // is nothing left to show and the list is the only sensible place to be.
-  if (g) openGame(g);
+  if (g) { openGame(g); $('#tab-raw').scrollTop = top; }
   else $('#backHome').click();
 }
 $('#gameRefresh').addEventListener('click', refreshRaw);
@@ -415,11 +419,12 @@ $('#backHome').addEventListener('click', () => {
 });
 
 // ---------- clips ----------
-async function loadClips() {
+async function loadClips(opts) {
   const grid = $('#clipsGrid');
-  grid.innerHTML = '<p class="muted">Loading…</p>';
+  if (!(opts && opts.quiet)) grid.innerHTML = '<p class="muted">Loading…</p>';
   try {
     const groups = await api('/api/local?kind=clips');
+    noteShown('clips', groups);
     const files = groups.flatMap((g) => g.files).sort((a, b) => b.modified - a.modified);
     $('#clipsLabel').textContent = files.length + ' clip' + (files.length === 1 ? '' : 's');
     grid.innerHTML = '';
@@ -429,6 +434,43 @@ async function loadClips() {
   } catch (e) { grid.innerHTML = ''; toast(e.message, 'err'); }
 }
 $('#clipsRefresh').addEventListener('click', loadClips);
+
+// ---------- keeping the lists current ----------
+// Clips arrive from the hotkey, the kill detector, a cut, or OBS writing into the
+// same folder, so the open list follows the folder instead of waiting for Refresh.
+// A brand new file may still be being written: it is left until it has settled,
+// and nothing is redrawn during a job, which would reset a card's busy button.
+const SETTLE_SEC = 4;
+const shownFiles = { raw: new Set(), clips: new Set() };
+
+function noteShown(kind, groups) {
+  shownFiles[kind] = new Set(groups.flatMap((g) => g.files.map((f) => f.path)));
+}
+
+function listChanged(kind, groups, nowSec) {
+  const shown = shownFiles[kind];
+  const onDisk = groups.flatMap((g) => g.files)
+    .filter((f) => shown.has(f.path) || nowSec - f.modified >= SETTLE_SEC)
+    .map((f) => f.path);
+  return onDisk.length !== shown.size || onDisk.some((p) => !shown.has(p));
+}
+
+async function checkLists() {
+  const kind = ['raw', 'clips'].find((k) => $('#tab-' + k).classList.contains('active'));
+  if (!kind || document.hidden || state.jobRunning) return;
+  try {
+    const groups = await api('/api/local?kind=' + kind);
+    if (!listChanged(kind, groups, Date.now() / 1000)) return;
+    if (kind === 'raw') await refreshRaw();
+    else await loadClips({ quiet: true });
+  } catch (e) { /* a folder that has gone missing is reported by Refresh */ }
+}
+
+async function watchLists() {
+  await checkLists();
+  setTimeout(watchLists, 3000);
+}
+document.addEventListener('visibilitychange', checkLists);
 
 // ---------- trim editor ----------
 const P = {
@@ -695,6 +737,7 @@ $('#cutBtn').addEventListener('click', async () => {
     const r = await post('/api/cut', { path: src.path, start: state.inPt, end: state.outPt, audio: audio });
     toast('Saved ' + r.name, 'ok');
     closeEditor();
+    if ($('#tab-clips').classList.contains('active')) loadClips({ quiet: true });
 
     // Offer to reclaim the space now that the good bit is saved. Never
     // automatic: deleting a source recording has to be a deliberate answer.
@@ -1176,6 +1219,7 @@ $('#updCheck').addEventListener('click', async () => {
 async function pollJob() {
   try {
     const j = await api('/api/job');
+    state.jobRunning = !!j.running;
     const bar = $('#jobBar');
     if (j.running) {
       bar.classList.remove('hidden');
