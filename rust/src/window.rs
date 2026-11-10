@@ -2,8 +2,12 @@
 //! really closes it - the WebView's browser processes take a hundred MB or so - and
 //! the app carries on in the tray, recording. Opening it again from the tray makes a
 //! new one.
+//!
+//! A window left minimized for a while lets its WebView go the same way, but keeps
+//! its taskbar button; bringing it back loads the page again.
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::OnceLock;
+use std::time::{Duration, Instant};
 
 use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
@@ -31,6 +35,11 @@ enum Ev {
 static HWND_NOW: AtomicIsize = AtomicIsize::new(0);
 static QUITTING: AtomicBool = AtomicBool::new(false);
 static PROXY: OnceLock<EventLoopProxy<Ev>> = OnceLock::new();
+/// The page has something open that a reload would lose (the trim editor).
+static PAGE_BUSY: AtomicBool = AtomicBool::new(false);
+
+/// How long the window sits minimized before its WebView is let go.
+const SLEEP_AFTER: Duration = Duration::from_secs(5 * 60);
 
 pub fn hwnd() -> HWND {
     HWND_NOW.load(Ordering::SeqCst)
@@ -60,6 +69,10 @@ pub fn quit_app() {
 
 /// The page's own title-bar buttons. Returns whether the window is maximized.
 pub fn action(what: &str) -> Result<bool, String> {
+    match what {
+        "busy" | "idle" => PAGE_BUSY.store(what == "busy", Ordering::SeqCst),
+        _ => {}
+    }
     let h = hwnd();
     if h == 0 {
         return Err("the window is not ready yet".into());
@@ -75,6 +88,7 @@ pub fn action(what: &str) -> Result<bool, String> {
             "close" => {
                 PostMessageW(h, WM_CLOSE, 0, 0);
             }
+            "busy" | "idle" => {}
             "drag" => {
                 // Hand the drag to Windows so snapping and multi-monitor work the same
                 // as on a normal title bar.
@@ -125,9 +139,10 @@ pub fn run(addr: String, in_tray: bool) -> Result<(), String> {
     let mut el = EventLoopBuilder::<Ev>::with_user_event().build();
     let _ = PROXY.set(el.create_proxy());
     let mut context = WebContext::new(Some(settings::app_dir().join("webview")));
-    let mut open: Option<(Window, WebView)> = None;
+    let mut open: Option<(Window, Option<WebView>)> = None;
     let mut fatal: Option<String> = None;
     let mut first = !in_tray;
+    let mut minimized_since: Option<Instant> = None;
 
     el.run_return(|event, target, flow| {
         *flow = ControlFlow::Wait;
@@ -164,6 +179,44 @@ pub fn run(addr: String, in_tray: bool) -> Result<(), String> {
             }
             _ => {}
         }
+        if matches!(*flow, ControlFlow::Exit) {
+            return;
+        }
+        let Some((window, webview)) = open.as_mut() else {
+            minimized_since = None;
+            PAGE_BUSY.store(false, Ordering::SeqCst);
+            return;
+        };
+        let minimized = unsafe { IsIconic(window.hwnd() as HWND) != 0 };
+        if !minimized {
+            minimized_since = None;
+            if webview.is_none() {
+                // Back from a sleep: the page loads again in the same window.
+                match build_webview(window, &addr, &mut context) {
+                    Ok(w) => *webview = Some(w),
+                    Err(e) => {
+                        crate::win::show_error("Could not open the window", &e);
+                        HWND_NOW.store(0, Ordering::SeqCst);
+                        open = None;
+                    }
+                }
+            }
+            return;
+        }
+        if webview.is_none() {
+            return;
+        }
+        let since = *minimized_since.get_or_insert_with(Instant::now);
+        // Not while a cut or upload is running or the editor is open: the page
+        // would lose its progress or the trim.
+        let busy = PAGE_BUSY.load(Ordering::SeqCst) || crate::job::snapshot().running;
+        if since.elapsed() >= SLEEP_AFTER && !busy {
+            *webview = None;
+            minimized_since = None;
+        } else {
+            let next = if busy { Instant::now() + Duration::from_secs(30) } else { since + SLEEP_AFTER };
+            *flow = ControlFlow::WaitUntil(next);
+        }
     });
     match fatal {
         Some(e) => Err(e),
@@ -175,7 +228,7 @@ fn open_window(
     target: &tao::event_loop::EventLoopWindowTarget<Ev>,
     addr: &str,
     context: &mut WebContext,
-    open: &mut Option<(Window, WebView)>,
+    open: &mut Option<(Window, Option<WebView>)>,
 ) -> Result<(), String> {
     let window = WindowBuilder::new()
         .with_title("Miyav")
@@ -191,13 +244,18 @@ fn open_window(
         ));
     }
     let h = window.hwnd() as HWND;
-    let webview = WebViewBuilder::with_web_context(context)
-        .with_url(addr)
-        .with_devtools(std::env::var_os("MIYAV_DEBUG").is_some())
-        .build(&window)
-        .map_err(|e| format!("WebView2 is required. Install the Microsoft Edge WebView2 Runtime and try again ({e})"))?;
+    let webview = build_webview(&window, addr, context)?;
     HWND_NOW.store(h, Ordering::SeqCst);
     style_window(h);
-    *open = Some((window, webview));
+    *open = Some((window, Some(webview)));
     Ok(())
+}
+
+fn build_webview(window: &Window, addr: &str, context: &mut WebContext) -> Result<WebView, String> {
+    PAGE_BUSY.store(false, Ordering::SeqCst);
+    WebViewBuilder::with_web_context(context)
+        .with_url(addr)
+        .with_devtools(std::env::var_os("MIYAV_DEBUG").is_some())
+        .build(window)
+        .map_err(|e| format!("WebView2 is required. Install the Microsoft Edge WebView2 Runtime and try again ({e})"))
 }

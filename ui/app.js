@@ -489,6 +489,8 @@ function openEditor(f) {
   state.sel = f;
   $('#edName').textContent = f.name;
   $('#editor').classList.remove('hidden');
+  // The app lets the page sleep when the window sits minimized, but not mid-trim.
+  api('/api/window?do=busy').catch(() => {});
 
   // Recordings with several audio tracks (ours keep game, PC audio and mic
   // apart) get a choice of which one leads the cut, or of none at all.
@@ -543,6 +545,7 @@ function openEditor(f) {
 function closeEditor() {
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   $('#editor').classList.add('hidden');
+  api('/api/window?do=idle').catch(() => {});
   const v = $('#player');
   v.pause();
   v.removeAttribute('src');
@@ -1094,7 +1097,10 @@ async function loadGames() {
       list.innerHTML = '<p class="muted">None found. Fullscreen games are still recorded.</p>';
       return;
     }
-    games.slice().sort((a, b) => a.name.localeCompare(b.name)).forEach((g) => {
+    // Grouped by store, Steam first and Riot next, then by name within each store.
+    const STORE_ORDER = ['Steam', 'Riot', 'Epic', 'GOG', 'Ubisoft', 'Xbox', 'Known game', 'Added by you'];
+    const rank = (s) => { const i = STORE_ORDER.indexOf(s); return i < 0 ? STORE_ORDER.length : i; };
+    games.slice().sort((a, b) => rank(a.store) - rank(b.store) || a.name.localeCompare(b.name)).forEach((g) => {
       const row = document.createElement('div');
       row.className = 'game-row';
       row.title = g.dir;
@@ -1265,5 +1271,12 @@ function placePcCard() {
 }
 pcCardNarrow.addEventListener('change', placePcCard);
 placePcCard();
+
+// This is an app, not a browser: no "Saved info" list under text boxes.
+// index.html sets it on its own inputs; this catches any built later.
+document.addEventListener('focusin', (e) => {
+  const t = e.target;
+  if ((t.tagName === 'INPUT' || t.tagName === 'TEXTAREA') && t.autocomplete !== 'off') t.setAttribute('autocomplete', 'off');
+}, true);
 
 boot().catch((e) => toast(e.message, 'err'));

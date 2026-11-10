@@ -29,17 +29,17 @@
       <p class="muted">These are fine as they are. Change them only if you want to.</p>
 
       <label>Recordings <span class="muted">&mdash; saved clips go here. Use OBS or ShadowPlay too? Pick their folder; sub-folders are scanned.</span></label>
-      <div class="picker"><input id="wizRaw" type="text" /><button class="btn ghost pickbtn" data-pick="wizRaw" data-title="Choose your recordings folder">Change…</button></div>
+      <div class="picker"><input autocomplete="off" id="wizRaw" type="text" /><button class="btn ghost pickbtn" data-pick="wizRaw" data-title="Choose your recordings folder">Change…</button></div>
 
       <label>Clips <span class="muted">&mdash; where trimmed clips are written</span></label>
-      <div class="picker"><input id="wizClips" type="text" /><button class="btn ghost pickbtn" data-pick="wizClips" data-title="Choose where clips are saved">Change…</button></div>
+      <div class="picker"><input autocomplete="off" id="wizClips" type="text" /><button class="btn ghost pickbtn" data-pick="wizClips" data-title="Choose where clips are saved">Change…</button></div>
 
       <label>Save-clip key</label>
-      <input id="wizHotkey" class="hotkey" type="text" readonly placeholder="Click, then press the keys" />
+      <input autocomplete="off" id="wizHotkey" class="hotkey" type="text" readonly placeholder="Click, then press the keys" />
       <p class="muted">Press it in a game to save the <span id="wizKept">last minute</span>: two rising beeps mean the clip is saved. Click the box to pick other keys.</p>
 
-      <label class="check"><input id="wizRec" type="checkbox" checked /> Turn recording on &mdash; it waits for a game to start</label>
-      <label class="check"><input id="wizMic" type="checkbox" /> Record my microphone</label>
+      <label class="check"><input autocomplete="off" id="wizRec" type="checkbox" checked /> Turn recording on &mdash; it waits for a game to start</label>
+      <label class="check"><input autocomplete="off" id="wizMic" type="checkbox" /> Record my microphone</label>
 
       <div id="wizMsg" class="wiz-msg muted"></div>
 
@@ -124,7 +124,7 @@
             <button id="recLastOpen" class="btn ghost small">Edit</button>
             <button id="recLastReveal" class="btn ghost small">Reveal</button>
           </div>
-          <label class="check"><input id="recAutostart" type="checkbox" /> Start with Windows &mdash; waits in the tray, ready to record</label>
+          <label class="check"><input autocomplete="off" id="recAutostart" type="checkbox" /> Start with Windows &mdash; waits in the tray, ready to record</label>
           <p class="muted">Closing the window keeps the app in the tray (bottom right, by the clock). Right-click its icon to quit.</p>
         </div>
 
@@ -160,20 +160,20 @@
               <option value="120">2 minutes</option>
               <option value="300">5 minutes</option>
             </select>
-            <label class="check"><input id="recMic" type="checkbox" /> Record my microphone</label>
+            <label class="check"><input autocomplete="off" id="recMic" type="checkbox" /> Record my microphone</label>
             <p class="muted">Clips get the game, PC audio and your mic as separate tracks, plus a mix of them all; you pick which to keep when you cut.</p>
-            <label class="check"><input id="recAutoClip" type="checkbox" /> Save a clip of every kill automatically &mdash; League of Legends and CS2</label>
+            <label class="check"><input autocomplete="off" id="recAutoClip" type="checkbox" /> Save a clip of every kill automatically &mdash; League of Legends and CS2</label>
           </div>
 
           <div class="card">
             <h2>Hotkeys</h2>
             <label>Save a clip</label>
-            <input id="recHotkey" class="hotkey" type="text" readonly placeholder="Click, then press the keys" />
-            <label class="check"><input id="recNotify" type="checkbox" /> Show a notification when a clip is saved &mdash; click it to trim the clip</label>
+            <input autocomplete="off" id="recHotkey" class="hotkey" type="text" readonly placeholder="Click, then press the keys" />
+            <label class="check"><input autocomplete="off" id="recNotify" type="checkbox" /> Show a notification when a clip is saved &mdash; click it to trim the clip</label>
             <label>Swap between games only and whole screen</label>
-            <input id="recSwapHotkey" class="hotkey" type="text" readonly placeholder="Click, then press the keys" />
+            <input autocomplete="off" id="recSwapHotkey" class="hotkey" type="text" readonly placeholder="Click, then press the keys" />
             <div id="recSwapErr" class="rec-err hidden"></div>
-            <label class="check"><input id="recSwapBack" type="checkbox" /> After a swap to whole screen, go back to games only once a clip is saved</label>
+            <label class="check"><input autocomplete="off" id="recSwapBack" type="checkbox" /> After a swap to whole screen, go back to games only once a clip is saved</label>
           </div>
         </div>
 
@@ -264,9 +264,9 @@
           <div class="card">
             <h2>Folders</h2>
             <label>Recordings <span class="muted">(sub-folders are scanned)</span></label>
-            <div class="picker"><input id="setRaw" type="text" /><button class="btn ghost pickbtn" data-pick="setRaw" data-title="Choose your recordings folder">Choose…</button></div>
+            <div class="picker"><input autocomplete="off" id="setRaw" type="text" /><button class="btn ghost pickbtn" data-pick="setRaw" data-title="Choose your recordings folder">Choose…</button></div>
             <label>Clips</label>
-            <div class="picker"><input id="setClips" type="text" /><button class="btn ghost pickbtn" data-pick="setClips" data-title="Choose where clips are saved">Choose…</button></div>
+            <div class="picker"><input autocomplete="off" id="setClips" type="text" /><button class="btn ghost pickbtn" data-pick="setClips" data-title="Choose where clips are saved">Choose…</button></div>
             <div class="row">
               <button id="setSave" class="btn primary">Save</button>
               <span id="setMsg" class="muted"></span>
@@ -290,7 +290,7 @@
         <div class="settings-col">
           <div class="card">
             <h2>After cutting</h2>
-            <label class="check"><input id="setAlwaysDel" type="checkbox" /> Always delete the original recording after cutting</label>
+            <label class="check"><input autocomplete="off" id="setAlwaysDel" type="checkbox" /> Always delete the original recording after cutting</label>
             <p class="muted">Off by default. With this off you are asked each time. There is no trash folder, so deletions are permanent.</p>
           </div>
 
@@ -341,7 +341,7 @@
       <button id="pMute" class="pbtn" title="Mute (M)">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 9v6h4l5 4V5L8 9H4z"/></svg>
       </button>
-      <input id="pVol" class="vol" type="range" min="0" max="1" step="0.05" value="1" title="Volume" />
+      <input autocomplete="off" id="pVol" class="vol" type="range" min="0" max="1" step="0.05" value="1" title="Volume" />
       <button id="pFull" class="pbtn" title="Full screen (F)">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 5h5v2H7v3H5V5zm9 0h5v5h-2V7h-3V5zM5 14h2v3h3v2H5v-5zm12 0h2v5h-5v-2h3v-3z"/></svg>
       </button>
