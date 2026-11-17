@@ -20,7 +20,7 @@ pub const APP_VERSION: &str = match option_env!("MIYAV_VERSION") {
 };
 
 /// Only connecting is bounded here; each request sets its own overall timeout.
-static AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
+pub static AGENT: LazyLock<ureq::Agent> = LazyLock::new(|| {
     let tls = native_tls::TlsConnector::new().expect("Windows TLS");
     ureq::AgentBuilder::new()
         .tls_connector(std::sync::Arc::new(tls))

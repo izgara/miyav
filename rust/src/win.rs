@@ -41,6 +41,12 @@ pub fn show_error(title: &str, body: &str) {
     unsafe { MessageBoxW(0, b.as_ptr(), t.as_ptr(), MB_OK | MB_ICONERROR) };
 }
 
+/// A Yes/No question; true for Yes.
+pub fn ask(title: &str, body: &str) -> bool {
+    let (t, b) = (wide(title), wide(body));
+    unsafe { MessageBoxW(0, b.as_ptr(), t.as_ptr(), MB_YESNO | MB_ICONQUESTION | MB_SETFOREGROUND) == IDYES }
+}
+
 // ---- registry ----
 
 pub const HKCU: HKEY = HKEY_CURRENT_USER;

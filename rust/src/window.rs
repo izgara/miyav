@@ -230,6 +230,8 @@ fn open_window(
     context: &mut WebContext,
     open: &mut Option<(Window, Option<WebView>)>,
 ) -> Result<(), String> {
+    // Before the window, so no empty frame sits behind the question.
+    ensure_webview_runtime()?;
     let window = WindowBuilder::new()
         .with_title("Miyav")
         .with_inner_size(LogicalSize::new(1200.0, 800.0))
@@ -253,9 +255,60 @@ fn open_window(
 
 fn build_webview(window: &Window, addr: &str, context: &mut WebContext) -> Result<WebView, String> {
     PAGE_BUSY.store(false, Ordering::SeqCst);
+    ensure_webview_runtime()?;
     WebViewBuilder::with_web_context(context)
         .with_url(addr)
         .with_devtools(std::env::var_os("MIYAV_DEBUG").is_some())
         .build(window)
-        .map_err(|e| format!("WebView2 is required. Install the Microsoft Edge WebView2 Runtime and try again ({e})"))
+        .map_err(|e| format!("WebView2 is required. Install the Microsoft Edge WebView2 Runtime from {WEBVIEW2_PAGE} and try again ({e})"))
+}
+
+/// Microsoft's Evergreen bootstrapper: a small exe that downloads and installs the
+/// current WebView2 Runtime. Run without admin rights it installs for this user only,
+/// so no UAC prompt.
+const WEBVIEW2_BOOTSTRAPPER: &str = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
+const WEBVIEW2_PAGE: &str = "https://developer.microsoft.com/microsoft-edge/webview2/";
+
+/// The window is a WebView2 page. Windows 11 and most Windows 10 PCs have the runtime,
+/// but some do not (stripped-down installs, or someone removed it). So offer to install
+/// it, with Microsoft's own installer and progress window, and carry on once it is there.
+fn ensure_webview_runtime() -> Result<(), String> {
+    if wry::webview_version().is_ok() {
+        return Ok(());
+    }
+    let missing = "Miyav needs the Microsoft Edge WebView2 Runtime to show its window, and this PC does not have it.";
+    if !crate::win::ask("Miyav", &format!("{missing}\n\nInstall it now? It is free, from Microsoft, and takes about a minute.")) {
+        crate::win::open_browser(WEBVIEW2_PAGE);
+        return Err(format!("{missing} Download the Evergreen Bootstrapper from {WEBVIEW2_PAGE}, install it, then open the app again."));
+    }
+    let result = install_webview_runtime();
+    if wry::webview_version().is_ok() {
+        return Ok(());
+    }
+    crate::win::open_browser(WEBVIEW2_PAGE);
+    let why = result.err().map(|e| format!(" ({e})")).unwrap_or_default();
+    Err(format!(
+        "WebView2 could not be installed automatically{why}. The download page is open in your browser: install the Evergreen Bootstrapper, then open the app again."
+    ))
+}
+
+fn install_webview_runtime() -> Result<(), String> {
+    use std::io::Read;
+    let res = crate::update::AGENT
+        .get(WEBVIEW2_BOOTSTRAPPER)
+        .timeout(Duration::from_secs(120))
+        .call()
+        .map_err(|e| format!("downloading the installer: {e}"))?;
+    let mut bytes = Vec::new();
+    res.into_reader().take(64 << 20).read_to_end(&mut bytes).map_err(|e| format!("downloading the installer: {e}"))?;
+    let exe = std::env::temp_dir().join("MicrosoftEdgeWebview2Setup.exe");
+    std::fs::write(&exe, &bytes).map_err(|e| e.to_string())?;
+    // Not /silent: Microsoft's window shows the download and install progress.
+    let status = std::process::Command::new(&exe).arg("/install").status();
+    let _ = std::fs::remove_file(&exe);
+    match status {
+        Ok(s) if s.success() => Ok(()),
+        Ok(s) => Err(format!("the installer exited with code {}", s.code().unwrap_or(-1))),
+        Err(e) => Err(format!("could not run the installer: {e}")),
+    }
 }

@@ -145,6 +145,7 @@ settings in place. Delete those folders by hand if you want them gone.
 
 - 64-bit Windows 10 or 11.
 - The Microsoft Edge WebView2 runtime, which comes with Windows 11 and current Windows 10.
+  If it is missing, Miyav offers to install it (from Microsoft, no admin rights needed).
 - NVENC needs NVIDIA driver 531 or newer.
 - Windows only. There is no Linux or macOS version.
 - Shrinking on AMD and Intel hardware has not been tested on real cards yet.
